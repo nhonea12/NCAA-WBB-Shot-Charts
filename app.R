@@ -11,36 +11,7 @@ font_add_google("Roboto", "roboto")
 # Enable showtext for plots
 showtext_auto()
 
-# load NCAA women's basketball play-by-play data
-wbb_pbp <- wehoop::load_wbb_pbp()
-
-# load team identifying data
-teams <- wehoop::espn_wbb_teams()
-
-# load player box score data
-player_box_scores <- load_wbb_player_box()
-
-# add player names and headshots to play-by-play data
-wbb_pbp <- wbb_pbp |> 
-  left_join(player_box_scores, by = c("athlete_id_1" = "athlete_id", 
-                                      "team_id" = "team_id",
-                                      "season" = "season",
-                                      "season_type" = "season_type",
-                                      "game_id" = "game_id",
-                                      "game_date" = "game_date",
-                                      "game_date_time" = "game_date_time"))
-
-
-# get just shoooting plays from the play-by-play data and adjust their coordinates
-wbb_shots <- wbb_pbp |> 
-  filter(
-    shooting_play == TRUE, 
-    !(type_text %in% c("MadeFreeThrow", "MissedFreeThrow"))
-  ) |> 
-  mutate(
-    x_coord = -1*(coordinate_x_raw - 25),
-    y_coord = coordinate_y_raw + 5
-  )
+# include WBB data in the server so it automatically updates
 
 
 # create the court points
@@ -160,6 +131,34 @@ ui <- fluidPage(
 
 # server for the Shiny app
 server <- function(input, output, session) {
+  # load NCAA women's basketball play-by-play data
+  wbb_pbp <- wehoop::load_wbb_pbp()
+  
+  # load player box score data
+  player_box_scores <- load_wbb_player_box()
+  
+  # add player names and headshots to play-by-play data
+  wbb_pbp <- wbb_pbp |> 
+    left_join(player_box_scores, by = c("athlete_id_1" = "athlete_id", 
+                                        "team_id" = "team_id",
+                                        "season" = "season",
+                                        "season_type" = "season_type",
+                                        "game_id" = "game_id",
+                                        "game_date" = "game_date",
+                                        "game_date_time" = "game_date_time"))
+  
+  
+  # get just shoooting plays from the play-by-play data and adjust their coordinates
+  wbb_shots <- wbb_pbp |> 
+    filter(
+      shooting_play == TRUE, 
+      !(type_text %in% c("MadeFreeThrow", "MissedFreeThrow"))
+    ) |> 
+    mutate(
+      x_coord = -1*(coordinate_x_raw - 25),
+      y_coord = coordinate_y_raw + 5
+    )
+  
   
   # subset the data to only the specified player's shots, only update when the action button is pressed
   player_shots <- eventReactive(input$action_button, {
