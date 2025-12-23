@@ -4,6 +4,7 @@ library(wehoop) # for WBB data
 library(showtext) # for adding fonts
 library(ggimage) # for incorporating images into the shot charts
 library(shinycssloaders)
+library(ggtext)
 
 # Add Google font "Roboto"
 font_add_google("Roboto", "roboto")
@@ -11,7 +12,40 @@ font_add_google("Roboto", "roboto")
 # Enable showtext for plots
 showtext_auto()
 
-# include WBB data in the server so it automatically updates
+if (!file.exists("wbb_shots.rds")) {
+# load NCAA women's basketball play-by-play data
+wbb_pbp <- wehoop::load_wbb_pbp()
+
+# load player box score data
+player_box_scores <- load_wbb_player_box()
+
+# add player names and headshots to play-by-play data
+wbb_pbp <- wbb_pbp |> 
+  left_join(player_box_scores, by = c("athlete_id_1" = "athlete_id", 
+                                      "team_id" = "team_id",
+                                      "season" = "season",
+                                      "season_type" = "season_type",
+                                      "game_id" = "game_id",
+                                      "game_date" = "game_date",
+                                      "game_date_time" = "game_date_time"))
+
+
+# get just shoooting plays from the play-by-play data and adjust their coordinates
+wbb_shots <- wbb_pbp |> 
+  filter(
+    shooting_play == TRUE, 
+    !(type_text %in% c("MadeFreeThrow", "MissedFreeThrow"))
+  ) |> 
+  mutate(
+    x_coord = -1*(coordinate_x_raw - 25),
+    y_coord = coordinate_y_raw + 5
+  )
+
+saveRDS(wbb_shots, "wbb_shots.rds")
+} else {
+  wbb_shots <- readRDS("wbb_shots.rds")
+}
+
 
 
 # create the court points
@@ -127,39 +161,8 @@ ui <- fluidPage(
 )
 
 
-
-
 # server for the Shiny app
 server <- function(input, output, session) {
-  # load NCAA women's basketball play-by-play data
-  wbb_pbp <- wehoop::load_wbb_pbp()
-  
-  # load player box score data
-  player_box_scores <- load_wbb_player_box()
-  
-  # add player names and headshots to play-by-play data
-  wbb_pbp <- wbb_pbp |> 
-    left_join(player_box_scores, by = c("athlete_id_1" = "athlete_id", 
-                                        "team_id" = "team_id",
-                                        "season" = "season",
-                                        "season_type" = "season_type",
-                                        "game_id" = "game_id",
-                                        "game_date" = "game_date",
-                                        "game_date_time" = "game_date_time"))
-  
-  
-  # get just shoooting plays from the play-by-play data and adjust their coordinates
-  wbb_shots <- wbb_pbp |> 
-    filter(
-      shooting_play == TRUE, 
-      !(type_text %in% c("MadeFreeThrow", "MissedFreeThrow"))
-    ) |> 
-    mutate(
-      x_coord = -1*(coordinate_x_raw - 25),
-      y_coord = coordinate_y_raw + 5
-    )
-  
-  
   # subset the data to only the specified player's shots, only update when the action button is pressed
   player_shots <- eventReactive(input$action_button, {
     wbb_shots |> 
@@ -177,13 +180,8 @@ server <- function(input, output, session) {
   
   # reactive plot of player shots
   output$shot_chart <- renderPlot({
-    # download player headshot if available
-    if(!is.na(player_shots()$athlete_headshot_href[1])){
-      headshot_png <- paste0(str_replace_all(selected_player()$name, " ", ""), "Headshot.png")
-      download.file(player_shots()$athlete_headshot_href[1], 
-                    destfile = headshot_png)
-    }
-    # create a new variable that stores the player name in a way that it will still show the headshot if the player has a ' in their name
+    # require the number of shots by a player to be greater than 0 for the plot to render
+    req(player_shots(), nrow(player_shots()) > 0)
     html_safe_player_name <- selected_player()$name |> 
       str_replace_all(" ", "") |> 
       str_replace_all("'", "&#39;")
@@ -228,9 +226,9 @@ server <- function(input, output, session) {
             plot.caption = element_text(size = 5)) + 
       # add labels 
       labs(
-        #title = paste0(player, " Shot Chart"),
+        #title = paste0(html_safe_player_name, " Shot Chart"),
         title = ifelse(!is.na(player_shots()$athlete_headshot_href[1]),
-                       paste0("<img src = '", html_safe_player_name, "Headshot.png'", " height = 50>",
+                       paste0("<img src = '", player_shots()$athlete_headshot_href[1], "' height = 50>",
                               "<span style='font-size: 40pt'>",
                               selected_player()$name,
                               " Shot Chart</span>"),
