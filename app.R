@@ -238,12 +238,12 @@ server <- function(input, output, session) {
       annotate("label", 
                x = 20, y = 42, 
                label = paste0("FG: ", nrow(player_shots() %>% filter(grepl("made", text))), "/", nrow(player_shots()), " \n 3 FG: ", nrow(player_shots() %>% filter(grepl("Three", text), grepl("made", text))), "/", nrow(player_shots() %>% filter(grepl("Three", text)))),
-               size = 5, 
+               size = 8, 
                color = "black", 
                fill = "floralwhite", 
                fontface = "bold",
-               lineheight = 1, # Controls line spacing (default is 1)
-               label.padding = unit(0.1, "lines"),  # Reduces padding inside the label (less space between text and label border)
+               lineheight = 0.8, # Controls line spacing (default is 1)
+               label.padding = unit(0.2, "lines"),  # Reduces padding inside the label (less space between text and label border)
                
       ) +
       theme(
