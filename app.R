@@ -1,10 +1,12 @@
 library(tidyverse)
 library(shiny)
+library(bslib)
 library(wehoop) # for WBB data
 library(showtext) # for adding fonts
 library(ggimage) # for incorporating images into the shot charts
-library(shinycssloaders)
+library(shinycssloaders) # to create a loading graphic while charts are being created
 library(ggtext)
+library(ggnewscale) # for the density charts
 
 # Add Google font "Roboto"
 font_add_google("Roboto", "roboto")
@@ -37,8 +39,8 @@ wbb_shots <- wbb_pbp |>
     !(type_text %in% c("MadeFreeThrow", "MissedFreeThrow"))
   ) |> 
   mutate(
-    x_coord = -1*(coordinate_x_raw - 25),
-    y_coord = coordinate_y_raw + 5
+    loc_x = -1*(coordinate_x_raw - 25),
+    loc_y = coordinate_y_raw + 5
   )
 
 saveRDS(wbb_shots, "wbb_shots.rds")
@@ -142,6 +144,14 @@ ui <- fluidPage(
         label = "Player:",
         value = "Tilda Trygger"
       ),
+      # # allow user to select a traditional shot chart or density chart
+      # radioButtons(
+      #   inputId = "chart_type",
+      #   label = "Chart Type:",
+      #   choices = c("Shot Chart", "Density Chart"),
+      #   selected = "Shot Chart"
+      # ),
+      # require action button to plot a new plot
       actionButton(
         inputId = "action_button",
         label = "Press to Plot"
@@ -149,20 +159,25 @@ ui <- fluidPage(
     ),
     # main panel of the user interface
     mainPanel(
-      shinycssloaders::withSpinner(
-        plotOutput(
-          outputId = "shot_chart",
-          width = "100%",
-          height = "650px"
-          )
+      card(
+        shinycssloaders::withSpinner(
+          plotOutput(
+            outputId = "shot_chart",
+            width = "100%",
+            height = "650px"
+            )
+          ),
+        card_footer("Data from ESPN. Pulled using the wehoop package.")
         )
+      )
     )
   )
-)
+
 
 
 # server for the Shiny app
 server <- function(input, output, session) {
+  
   # subset the data to only the specified player's shots, only update when the action button is pressed
   player_shots <- eventReactive(input$action_button, {
     wbb_shots |> 
@@ -178,17 +193,91 @@ server <- function(input, output, session) {
     )
   })
   
+  # # create a reactive value for the selected chart type, so it will only update when the action button is pressed
+  # selected_chart_type <- eventReactive(input$action_button, {
+  #   input$chart_type
+  # })
+  # 
+  # # calculate density data outside of the render plot function
+  # density_data <- eventReactive(input$action_button, {
+  #   
+  #   # how detailed we want our contours to be
+  #   n = 300
+  #   
+  #   # filter data for every player other than our player of interest, assign it to p2
+  #   p2 <- wbb_shots %>% 
+  #     dplyr::select(loc_x, loc_y, athlete_display_name, team_short_display_name) %>% 
+  #     filter(athlete_display_name != selected_player()$name & team_short_display_name != selected_player()$team)
+  #   
+  #   # get x/y coords as vectors
+  #   p1_x <- pull(player_shots(), loc_x)
+  #   p1_y <- pull(player_shots(), loc_y)
+  #   
+  #   # get x/y coords as vectors
+  #   p2_x <- pull(p2, loc_x)
+  #   p2_y <- pull(p2, loc_y)
+  #   
+  #   # get x and y range to compute comparisons across
+  #   x_rng = range(c(-27.5, 27.5))
+  #   y_rng = range(c(0, 52))
+  #   
+  #   # Explicitly calculate bandwidth for future use
+  #   bandwidth_x <- MASS::bandwidth.nrd(c(p1_x, p2_x))
+  #   bandwidth_y <- MASS::bandwidth.nrd(c(p1_y, p2_y))
+  #   
+  #   bandwidth_calc <- c(bandwidth_x, bandwidth_y)
+  #   
+  #   # Calculate the density estimate over the specified x and y range
+  #   d2_p1 = MASS::kde2d(p1_x, p1_y, h = c(7, 7), n=n, lims=c(x_rng, y_rng))
+  #   d2_p2 = MASS::kde2d(p2_x, p2_y, h = c(7, 7), n=n, lims=c(x_rng, y_rng))
+  #   
+  #   # Create a new dataframe that contains the difference in shot density between our two dataframes 
+  #   df_diff <- d2_p1
+  #   
+  #   # matrix subtraction density from p1 from league average
+  #   df_diff$z <- d2_p1$z - d2_p2$z
+  #   
+  #   # add matrix col names
+  #   colnames(df_diff$z) <- df_diff$y
+  #   
+  #   # Convert list to dataframe with relevant variables and columns
+  #   df_diff <- df_diff$z %>% 
+  #     as_tibble() %>% 
+  #     mutate(loc_x = df_diff$x) %>% 
+  #     pivot_longer(-loc_x, names_to = "loc_y", values_to = "z") %>% 
+  #     mutate(loc_y = as.double(loc_y))
+  #   
+  #   # create a separate dataframe for values that are less than 0
+  #   df_negative <- df_diff %>% filter(z < 0)
+  #   
+  #   # make positive 
+  #   df_negative$z <- abs(df_negative$z)
+  #   
+  #   # if less than 0, make 0
+  #   df_diff$z <- ifelse(df_diff$z < 0, 0, df_diff$z)
+  #   
+  #   # return these values as a list
+  #   list(
+  #     df_diff = df_diff,
+  #     df_negative = df_negative
+  #   )
+  #   
+  # })
+  
+  
   # reactive plot of player shots
   output$shot_chart <- renderPlot({
     # require the number of shots by a player to be greater than 0 for the plot to render
-    req(player_shots(), nrow(player_shots()) > 0)
-    html_safe_player_name <- selected_player()$name |> 
-      str_replace_all(" ", "") |> 
-      str_replace_all("'", "&#39;")
+    req(
+      player_shots(), 
+      nrow(player_shots()) > 0
+      )
+    
+    #if (selected_chart_type() == "Shot Chart"){
     # now create the shot chart
     ggplot(data = player_shots(),
-           aes(x = x_coord,
-               y = y_coord,
+           aes(x = loc_x,
+               y = loc_y,
                shape = scoring_play,
                color = scoring_play,
                fill = scoring_play))  +
@@ -249,7 +338,62 @@ server <- function(input, output, session) {
       theme(
         plot.title = ggtext::element_markdown()
       )
-  })
-}
+  # } else {
+  # 
+  # # plot of player shot densities
+  #   ggplot()  +
+  #     # plot court
+  #     geom_path(data = court_points,
+  #               aes(x = x, y = y, group = desc),
+  #               color = "black", linewidth = .25)  +
+  #     coord_fixed(clip = 'off') +
+  #     # custom theme
+  #     theme_f5()  +
+  #     # set opacity limits
+  #     scale_alpha_continuous(range = c(0.4, 1)) +
+  #     # set y-axis limits
+  #     scale_y_continuous(limits = c(-2.5, 45)) +
+  #     # set x-axis limits
+  #     scale_x_continuous(limits = c(-30, 30)) + 
+  #     # first layer (high freqency spots)
+  #     geom_raster(data = density_data()$df_diff %>% filter(z >= mean(z)), aes(x = loc_x, y = loc_y, alpha = sqrt(z), fill = sqrt(z)))  +
+  #     stat_contour(data = density_data()$df_diff %>% filter(z >= mean(z)), aes(x = loc_x, y = loc_y, z = sqrt(z), color = ..level..), linewidth = .25, bins = 4) +
+  #     scale_fill_gradient2(low = 'floralwhite', mid = 'floralwhite', high = "#cc0000",  trans = 'sqrt')  +
+  #     scale_color_gradient2(low = "floralwhite", mid = 'floralwhite', high = "#cc0000",  trans = 'sqrt') +
+  #     # second layer (low frequency spots)
+  #     new_scale_fill() +
+  #     new_scale_color() +
+  #     geom_raster(data = density_data()$df_negative %>% filter(z >= mean(z)), aes(x = loc_x, y = loc_y, alpha = sqrt(z), fill = sqrt(z)))  +
+  #     stat_contour(data = density_data()$df_negative %>% filter(z >= mean(z)), aes(x = loc_x, y = loc_y, z = sqrt(z), color = ..level..), linewidth = .25, bins = 4) +
+  #     scale_fill_gradient2(low = "floralwhite", mid = "floralwhite", high = "#aaaaaa",  trans = 'sqrt') +
+  #     scale_color_gradient2(low = "floralwhite", mid = "floralwhite", high = "#aaaaaa", trans = 'sqrt') +
+  #     # theme tweaks
+  #     theme(legend.position = 'none',
+  #           line = element_blank(),
+  #           axis.title.x = element_blank(),
+  #           axis.title.y = element_blank(),
+  #           axis.text.x = element_blank(),
+  #           axis.text.y = element_blank(), 
+  #           plot.margin = margin(.25, 0, 0.25, 0, "lines"),
+  #           plot.title = element_text(face = 'bold', hjust= .5, vjust = -2.5, family = "roboto"),
+  #           plot.subtitle = element_text(face = 'bold', hjust= .5, vjust = -3.5, family = "roboto", size = 25, lineheight = 0.25),
+  #           plot.caption = element_text(family = "roboto", size = 15))  +
+  #     labs(
+  #       title = ifelse(!is.na(player_shots()$athlete_headshot_href[1]),
+  #                         paste0("<img src = '", player_shots()$athlete_headshot_href[1], "' height = 50>",
+  #                                "<span style='font-size: 40pt'>",
+  #                                selected_player()$name,
+  #                                " Density Chart</span>"),
+  #                         paste0(selected_player()$name, " Density Chart")
+  #     ),
+  #       subtitle = paste0("#", player_shots()$athlete_jersey[1], ", ", player_shots()$athlete_position_name[1]),
+  #     caption = "Densities are relative to national average") +
+  #     theme(
+  #       plot.title = ggtext::element_markdown()
+  #     )
+  #   } # end of else
+  }) # end of renderPlot
+} # end of server function
+
 #run the application
 shinyApp(ui = ui, server = server)

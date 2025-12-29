@@ -3,6 +3,7 @@ library(shiny)
 library(wehoop) # for WBB data
 library(showtext) # for adding fonts
 library(ggimage) # for incorporating images into the shot charts
+library(ggnewscale) # for density plots
 
 
 
@@ -206,3 +207,137 @@ create_player_shot_chart <- function(team, player){
 
 
 create_player_shot_chart(team = "NC State", player = "Zamareya Jones")
+
+
+
+
+
+
+
+
+
+
+wbb_shots |> names()
+
+
+
+
+create_player_density_chart <- function(team = "NC State", player = "Tilda Trygger"){
+  
+  # how detailed we want our contours to be
+  n = 300
+  
+  # filter data to our player of interest, assign it to p1
+  p1 <- wbb_shots %>% 
+    dplyr::select(x_coord, y_coord, athlete_display_name, athlete_headshot_href, athlete_jersey, athlete_position_name) %>% 
+    filter(athlete_display_name == player) 
+  
+  #Download player headshot as a file so it can be included in the title of the plot
+  download.file(p1$athlete_headshot_href[1], 
+                destfile = paste0(str_replace_all(player, " ", ""), "Headshot.png"))
+  
+  # filter data for every player other than our player of interest, assign it to p2
+  p2 <- wbb_shots %>% 
+    dplyr::select(x_coord, y_coord, athlete_display_name) %>% 
+    filter(athlete_display_name != player)
+  
+  # get x/y coords as vectors
+  p1_x <- pull(p1, x_coord)
+  p1_y <- pull(p1, y_coord)
+  
+  # get x/y coords as vectors
+  p2_x <- pull(p2, x_coord)
+  p2_y <- pull(p2, y_coord)
+  
+  # get x and y range to compute comparisons across
+  x_rng = range(c(-27.5, 27.5))
+  y_rng = range(c(0, 52))
+  
+  # Explicitly calculate bandwidth for future use
+  bandwidth_x <- MASS::bandwidth.nrd(c(p1_x, p2_x))
+  bandwidth_y <- MASS::bandwidth.nrd(c(p1_y, p2_y))
+  
+  bandwidth_calc <- c(bandwidth_x, bandwidth_y)
+  
+  # Calculate the density estimate over the specified x and y range
+  d2_p1 = MASS::kde2d(p1_x, p1_y, h = c(7, 7), n=n, lims=c(x_rng, y_rng))
+  d2_p2 = MASS::kde2d(p2_x, p2_y, h = c(7, 7), n=n, lims=c(x_rng, y_rng))
+  
+  # Create a new dataframe that contains the difference in shot density between our two dataframes 
+  df_diff <- d2_p1
+  
+  # matrix subtraction density from p1 from league average
+  df_diff$z <- d2_p1$z - d2_p2$z
+  
+  # add matrix col names
+  colnames(df_diff$z) <- df_diff$y
+  
+  # Convert list to dataframe with relevant variables and columns
+  df_diff <- df_diff$z %>% 
+    as_tibble() %>% 
+    mutate(x_coord = df_diff$x) %>% 
+    pivot_longer(-x_coord, names_to = "y_coord", values_to = "z") %>% 
+    mutate(y_coord = as.double(y_coord))
+  
+  # create a separate dataframe for values that are less than 0
+  df_negative <- df_diff %>% filter(z < 0)
+  
+  # make positive 
+  df_negative$z <- abs(df_negative$z)
+  
+  # if less than 0, make 0
+  df_diff$z <- ifelse(df_diff$z < 0, 0, df_diff$z)
+  
+  
+  ggplot()  +
+    # plot court
+    geom_path(data = court_points,
+              aes(x = x, y = y, group = desc),
+              color = "black", linewidth = .25)  +
+    coord_fixed(clip = 'off') +
+    # custom theme
+    theme_f5()  +
+    # set opacity limits
+    scale_alpha_continuous(range = c(0.4, 1)) +
+    # set y-axis limits
+    scale_y_continuous(limits = c(-2.5, 45)) +
+    # set x-axis limits
+    scale_x_continuous(limits = c(-30, 30)) + 
+    # first layer (high freqency spots)
+    geom_raster(data = df_diff %>% filter(z >= mean(z)), aes(x = x_coord, y = y_coord, alpha = sqrt(z), fill = sqrt(z)))  +
+    stat_contour(data = df_diff %>% filter(z >= mean(z)), aes(x = x_coord, y = y_coord, z = sqrt(z), color = ..level..), linewidth = .25, bins = 4) +
+    scale_fill_gradient2(low = 'floralwhite', mid = 'floralwhite', high = "#cc0000",  trans = 'sqrt')  +
+    scale_color_gradient2(low = "floralwhite", mid = 'floralwhite', high = "#cc0000",  trans = 'sqrt') +
+    # second layer (low frequency spots)
+    new_scale_fill() +
+    new_scale_color() +
+    geom_raster(data = df_negative %>% filter(z >= mean(z)), aes(x = x_coord, y = y_coord, alpha = sqrt(z), fill = sqrt(z)))  +
+    stat_contour(data = df_negative %>% filter(z >= mean(z)), aes(x = x_coord, y = y_coord, z = sqrt(z), color = ..level..), linewidth = .25, bins = 4) +
+    scale_fill_gradient2(low = "floralwhite", mid = "floralwhite", high = "#aaaaaa",  trans = 'sqrt') +
+    scale_color_gradient2(low = "floralwhite", mid = "floralwhite", high = "#aaaaaa", trans = 'sqrt') +
+    # theme tweaks
+    theme(legend.position = 'none',
+          line = element_blank(),
+          axis.title.x = element_blank(),
+          axis.title.y = element_blank(),
+          axis.text.x = element_blank(),
+          axis.text.y = element_blank(), 
+          plot.margin = margin(.25, 0, 0.25, 0, "lines"),
+          plot.title = element_text(face = 'bold', hjust= .5, vjust = -2.5, family = "roboto"),
+          plot.subtitle = element_text(face = 'bold', hjust= .5, vjust = -3.5, family = "roboto", size = 15, lineheight = 0.25))  +
+    labs(title = paste0("<img src = '", str_replace_all(player, " ", ""), "Headshot.png'", 
+                        " height = 30>",
+                        "<span style='font-size: 25pt'>", 
+                        player, 
+                        " Heat Map</span>"),
+         subtitle = paste0("#", p1$athlete_jersey[1], ", ", p1$athlete_position_name[1])) +
+    theme(
+      plot.title = ggtext::element_markdown()
+    )
+}
+
+create_player_density_chart()
+create_player_shot_chart(team = "NC State", player = "Tilda Trygger")
+
+wbb_shots |> names()
+wbb_shots$team_location
