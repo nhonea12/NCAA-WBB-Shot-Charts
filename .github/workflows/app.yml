@@ -34,18 +34,5 @@ jobs:
         packages: tidyverse, wehoop, shiny, bslib, showtext, ggimage, shinycssloaders, ggtext, ggnewscale
         
     - name: Run R update script
-      run: Rscript shot_data.R
+      run: Rscript app.R
       shell: bash
-
-    - name: Commit changes in data folder
-      run: |
-        git config --global user.name 'github-actions[bot]'
-        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-        git add app.R
-        git diff --cached --quiet || git commit -m "Auto-update: Shiny App Locally"
-      shell: bash
-
-    - name: Push changes
-      run: git push
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
