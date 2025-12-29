@@ -1,0 +1,51 @@
+name: Update Shot Chart App Locally
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '10 8 * * *'
+
+jobs:
+  Updat-App-Locally:
+    name: Update the app.R file to include up to date shots
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+    - uses: actions/checkout@v3  
+
+    - uses: r-lib/actions/setup-r@v2
+      with: 
+        use-public-rspm: true
+        r-version: 'release'
+    - name: Install libcurl and libssl on Linux
+      run: sudo apt-get -y install libcurl4-openssl-dev
+      shell: bash
+      
+    - name: Cache CRAN packages
+      uses: actions/cache@v3 
+      with:
+        path: ${{ env.R_LIBS_USER }}
+        key: ${{ runner.os }}-r-${{ hashFiles('**/DESCRIPTION') }}
+
+    - name: Install required packages from CRAN
+      uses: r-lib/actions/setup-r-dependencies@v2
+      with: 
+        packages: tidyverse, wehoop, shiny, bslib, showtext, ggimage, shinycssloaders, ggtext, ggnewscale
+        
+    - name: Run R update script
+      run: Rscript shot_data.R
+      shell: bash
+
+    - name: Commit changes in data folder
+      run: |
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+        git add app.R
+        git diff --cached --quiet || git commit -m "Auto-update: Shiny App Locally"
+      shell: bash
+
+    - name: Push changes
+      run: git push
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
