@@ -293,7 +293,7 @@ server <- function(input, output, session) {
         subtitle = paste0("#", player_shots()$athlete_jersey[1], ", ", player_shots()$athlete_position_name[1])) +
       annotate("label", 
                x = 20, y = 42, 
-               label = paste0("FG: ", nrow(player_shots() %>% filter(grepl("made", text))), "/", nrow(player_shots()), " \n 3 FG: ", nrow(player_shots() %>% filter((grepl("Three", text) | grepl("three", text)), grepl("made", text))), "/", nrow(player_shots() %>% filter((grepl("Three", text) | grepl("three", text))))),
+               label = paste0("FG: ", nrow(player_shots() %>% filter((grepl("made", text) | grepl("makes", text)))), "/", nrow(player_shots()), " \n 3 FG: ", nrow(player_shots() %>% filter((grepl("Three", text) | grepl("three", text)) & (grepl("made", text) | grepl("makes", text)))), "/", nrow(player_shots() %>% filter((grepl("Three", text) | grepl("three", text))))),
                size = 8, 
                color = "black", 
                fill = "floralwhite", 
