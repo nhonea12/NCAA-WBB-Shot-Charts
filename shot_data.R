@@ -29,4 +29,32 @@ wbb_shots <- wbb_pbp |>
     loc_y = coordinate_y_raw + 5
   )
 
+# add in shot distances and areas that can be used for the hexagonal charts
+wbb_shots <- wbb_shots |>
+  mutate(
+    shot_distance = sqrt(loc_x^2 + loc_y^2) - 5.25,
+    shot_zone_range = case_when(
+      shot_distance <= 4 ~ "Restricted Area",
+      shot_distance <= 8 ~ "In The Paint (Non-RA)",
+      shot_distance <= 16 ~ "Mid-Range",
+      shot_distance <= 22.1458 ~ "Mid-Range",
+      TRUE ~ "3PT"
+    ),
+    shot_zone_area = case_when(
+      loc_x < -8 ~ "Left Side",
+      loc_x >  8 ~ "Right Side",
+      TRUE       ~ "Center"
+    ),
+    shot_zone_area = case_when(
+      shot_zone_range == "3PT" & abs(loc_x) > 22 ~ "Corner",
+      TRUE ~ shot_zone_area
+    ),
+    shot_made_numeric = as.integer(scoring_play),
+    shot_value = case_when(
+      grepl("three", text) ~ 3L,
+      grepl("Three", text) ~ 3L,
+      TRUE                 ~ 2L
+    )
+  )
+
 saveRDS(wbb_shots, "wbb_shots.rds")

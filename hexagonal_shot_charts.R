@@ -409,3 +409,5 @@ generate_hex_chart(
   hex_data = tilda_hexbin_data,
   base_court = court_points
 )
+
+tilda_hexbin_data

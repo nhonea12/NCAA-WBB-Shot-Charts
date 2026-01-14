@@ -7,6 +7,7 @@ library(ggimage) # for incorporating images into the shot charts
 library(shinycssloaders) # to create a loading graphic while charts are being created
 library(ggtext)
 library(ggnewscale) # for the density charts
+library(hexbin) # to create hexagonal shot charts
 
 # Add Google font "Roboto"
 font_add_google("Roboto", "roboto")
@@ -16,6 +17,19 @@ showtext_auto()
 
 # read in shot data from rds file (rds file created in shot_data.R)
 wbb_shots <- readRDS("../wbb_shots.rds")
+
+# create league average that can be used in hexagonal shot data
+averages <- wbb_shots |> 
+  group_by(
+    shot_zone_range, 
+    shot_zone_area
+  ) |> 
+  summarize(
+    fgm = sum(shot_made_numeric),
+    fga = n(),
+    league_pct = fgm/fga,
+    .groups = "drop"
+  )
 
 
 # create the court points
@@ -89,6 +103,132 @@ theme_f5 <- function (font_size = 9) {
 }
 
 
+# below functions used for hexagonal charts
+hex_bounds <- function(x, binwidth) {
+  c(
+    plyr::round_any(min(x), binwidth, floor) - 1e-6,
+    plyr::round_any(max(x), binwidth, ceiling) + 1e-6
+  )
+}
+
+calculate_hex_coords = function(shots, binwidths) {
+  xbnds = hex_bounds(shots$loc_x, binwidths[1])
+  xbins = diff(xbnds) / binwidths[1]
+  ybnds = hex_bounds(shots$loc_y, binwidths[2])
+  ybins = diff(ybnds) / binwidths[2]
+  
+  hb = hexbin(
+    x = shots$loc_x,
+    y = shots$loc_y,
+    xbins = xbins,
+    xbnds = xbnds,
+    ybnds = ybnds,
+    shape = ybins / xbins,
+    IDs = TRUE
+  )
+  
+  shots = mutate(shots, hexbin_id = hb@cID)
+  
+  hexbin_stats = shots  |> 
+    group_by(hexbin_id) |>
+    summarize(
+      hex_attempts = n(),
+      hex_pct = mean(shot_made_numeric),
+      hex_points_scored = sum(shot_made_numeric * shot_value),
+      hex_points_per_shot = mean(shot_made_numeric * shot_value),
+      .groups = "drop"
+    )
+  
+  hexbin_ids_to_zones = shots |>
+    dplyr::group_by(hexbin_id, shot_zone_range, shot_zone_area) |>
+    summarize(attempts = n(), .groups = "drop") |>
+    arrange(hexbin_id, desc(attempts)) |>
+    group_by(hexbin_id) |>
+    filter(row_number() == 1) |>
+    select(hexbin_id, shot_zone_range, shot_zone_area)
+  
+  hexbin_stats = inner_join(hexbin_stats, hexbin_ids_to_zones, by = "hexbin_id")
+  
+  # from hexbin package, see: https://github.com/edzer/hexbin
+  sx = hb@xbins / diff(hb@xbnds)
+  sy = (hb@xbins * hb@shape) / diff(hb@ybnds)
+  dx = 1 / (2 * sx)
+  dy = 1 / (2 * sqrt(3) * sy)
+  origin_coords = hexcoords(dx, dy)
+  
+  hex_centers = hcell2xy(hb)
+  
+  hexbin_coords = bind_rows(lapply(1:hb@ncells, function(i) {
+    tibble(
+      x = origin_coords$x + hex_centers$x[i],
+      y = origin_coords$y + hex_centers$y[i],
+      center_x = hex_centers$x[i],
+      center_y = hex_centers$y[i],
+      hexbin_id = hb@cell[i]
+    )
+  }))
+  
+  inner_join(hexbin_coords, hexbin_stats, by = "hexbin_id")
+}
+
+# min_radius_factor controls the difference in sizes between hex bins
+# binwidths control the overall size of the bins
+calculate_hexbins_from_shots = function(shots, league_averages, binwidths = c(2.5, 2.5), min_radius_factor = 0.4, fg_diff_limits = c(-0.12, 0.12), fg_pct_limits = c(0.2, 0.7), pps_limits = c(0.5, 1.5)) {
+  shots <- tibble::as_tibble(as.data.frame(shots))
+  league_averages <- tibble::as_tibble(as.data.frame(league_averages))
+  
+  if (nrow(shots) == 0) {
+    return(list())
+  }
+  
+  grouped_shots = shots |> 
+    group_by(shot_zone_range, shot_zone_area)
+  
+  zone_stats = grouped_shots |>
+    summarize(
+      zone_attempts = n(),
+      zone_pct = mean(shot_made_numeric),
+      zone_points_scored = sum(shot_made_numeric * shot_value),
+      zone_points_per_shot = mean(shot_made_numeric * shot_value),
+      .groups = "drop"
+    )
+  
+  league_zone_stats = league_averages |>
+    group_by(shot_zone_range, shot_zone_area) |>
+    summarize(league_pct = sum(fgm) / sum(fga), .groups = "drop")
+  
+  hex_data = calculate_hex_coords(shots, binwidths = binwidths)
+  
+  join_keys = c("shot_zone_area", "shot_zone_range")
+  
+  hex_data = hex_data |>
+    inner_join(zone_stats, by = join_keys) |>
+    inner_join(league_zone_stats, by = join_keys)
+  
+  max_hex_attempts = max(hex_data$hex_attempts)
+  
+  hex_data = mutate(hex_data,
+                    radius_factor = min_radius_factor + (1 - min_radius_factor) * log(hex_attempts + 1) / log(max_hex_attempts + 1),
+                    adj_x = center_x + radius_factor * (x - center_x),
+                    adj_y = center_y + radius_factor * (y - center_y),
+                    bounded_fg_diff = pmin(pmax(zone_pct - league_pct, fg_diff_limits[1]), fg_diff_limits[2]),
+                    bounded_fg_pct = pmin(pmax(zone_pct, fg_pct_limits[1]), fg_pct_limits[2]),
+                    bounded_points_per_shot = pmin(pmax(zone_points_per_shot, pps_limits[1]), pps_limits[2]))
+  
+  list(hex_data = hex_data, fg_diff_limits = fg_diff_limits, fg_pct_limits = fg_pct_limits, pps_limits = pps_limits, player_name = shots$athlete_display_name[1], team_name = shots$team_location[1], player_number = shots$athlete_jersey[1], player_headshot = shots$athlete_headshot_href[1], player_position = shots$athlete_position_name[1])
+}
+
+
+
+percent_formatter = function(x) {
+  scales::percent(x, accuracy = 1)
+}
+
+points_formatter = function(x) {
+  scales::comma(x, accuracy = 0.01)
+}
+
+
 
 
 
@@ -112,11 +252,15 @@ ui <- fluidPage(
         label = "Player:",
         value = "Tilda Trygger"
       ),
-      # allow user to select a traditional shot chart or density chart
+      # allow user to select a traditional shot chart, density chart, or hexagonal chart
       radioButtons(
         inputId = "chart_type",
         label = "Chart Type:",
-        choices = c("Shot Chart", "Density Chart"),
+        choices = c(
+          "Shot Chart", 
+          "Density Chart", 
+          "Hexagonal Chart"
+          ),
         selected = "Shot Chart"
       ),
       # require action button to plot a new plot
@@ -135,7 +279,7 @@ ui <- fluidPage(
             height = "650px"
           )
         ),
-        card_footer("Data from ESPN. Pulled using the wehoop package.")
+        card_footer("Created by Nathan Honea. Data from ESPN. Pulled using the wehoop package.")
       )
     )
   )
@@ -232,6 +376,10 @@ server <- function(input, output, session) {
     
   })
   
+  # create hexagonal shot data for hexagonal shot charts
+  player_hexbin_data <- eventReactive(input$action_button, {
+    calculate_hexbins_from_shots(shots = player_shots(), league_averages = averages)
+    })
   
   # reactive plot of player shots
   output$shot_chart <- renderPlot({
@@ -306,7 +454,7 @@ server <- function(input, output, session) {
         theme(
           plot.title = ggtext::element_markdown()
         )
-    } else {
+    } else if (selected_chart_type() == "Density Chart"){
       
       # plot of player shot densities
       ggplot()  +
@@ -359,7 +507,90 @@ server <- function(input, output, session) {
         theme(
           plot.title = ggtext::element_markdown()
         )
-    } # end of else
+    } else if (selected_chart_type() == "Hexagonal Chart"){
+      # generate_hex_chart = function(hex_data = player_hexbin_data(), base_court = court_points, metric = "bounded_fg_diff", alpha_range = c(0.85, 0.98)) {
+      #   if (length(hex_data) == 0) {
+      #     return(base_court)
+      #   }
+      # if (metric == "bounded_fg_diff") {
+      #   fill_limit = player_hexbin_data()$fg_diff_limits
+      #   fill_label = "FG% vs. National Avg."
+      #   label_formatter = percent_formatter
+      # } else if (metric == "bounded_fg_pct") {
+      #   fill_limit = player_hexbin_data()$fg_pct_limits
+      #   fill_label = "FG%"
+      #   label_formatter = percent_formatter
+      # } else if (metric == "bounded_points_per_shot") {
+      #   fill_limit = player_hexbin_data()$pps_limits
+      #   fill_label = "Points Per Shot"
+      #   label_formatter = points_formatter
+      # } else {
+      #   stop("invalid metric")
+      # }
+      
+      ggplot() + 
+        geom_path(data = court_points,
+                  aes(x = x, y = y, group = desc),
+                  color = "black", linewidth = .25,
+                  , inherit.aes = FALSE) +
+        coord_fixed(clip = 'off') + 
+        geom_polygon(
+          data = player_hexbin_data()$hex_data,
+          aes(
+            x = adj_x,
+            y = adj_y,
+            group = hexbin_id,
+            fill = !!sym("bounded_fg_diff"),
+            alpha = hex_attempts
+          )
+          # size = court_theme$hex_border_size,
+          # color = court_theme$hex_border_color
+        ) +
+        # custom theme
+        theme_f5()  +
+        # set opacity limits
+        #scale_alpha_continuous(range = c(0.4, 1)) +
+        # set y-axis limits
+        scale_y_continuous(limits = c(-2.5, 45), oob = scales::oob_squish) +
+        # set x-axis limits
+        scale_x_continuous(limits = c(-30, 30), oob = scales::oob_squish) + 
+        # theme tweaks
+        theme(line = element_blank(),
+              axis.title.x = element_blank(),
+              axis.title.y = element_blank(),
+              axis.text.x = element_blank(),
+              axis.text.y = element_blank(), 
+              plot.margin = margin(.25, 0, 0.25, 0, "lines"),
+              plot.title = element_text(face = 'bold', hjust= .5, vjust = 0, family = "roboto", size = 40),
+              plot.subtitle = element_text(face = 'bold', hjust= .5, vjust = 0, family = "roboto", size = 25, lineheight = 0.25),
+              plot.caption = element_text(size = 5)) + 
+        scale_fill_viridis_c(
+          paste0("FG% vs. National Avg.", "   "),
+          limit = player_hexbin_data()$fg_diff_limits,
+          labels = percent_formatter,
+          guide = guide_colorbar(barwidth = 15)
+        ) +
+        scale_alpha_continuous(guide = FALSE, range = c(0.85, 0.98), trans = "sqrt") +
+        theme(legend.text = element_text(size = 12), 
+              legend.title = element_text(face = 'bold', size = 18)
+              ) + 
+        guides(
+          fill = guide_colourbar(position = "bottom")
+        ) + 
+        labs(
+          title = ifelse(!is.na(player_hexbin_data()$player_headshot),
+                         paste0("<img src = '", player_hexbin_data()$player_headshot, "' height = 50>",
+                                "<span style='font-size: 40pt'>",
+                                player_hexbin_data()$player_name,
+                                " Hex Chart</span>"),
+                         paste0(player_hexbin_data()$player_name, " Hex Chart")
+          ),
+          subtitle = paste0("#", player_hexbin_data()$player_number, ", ", player_hexbin_data()$player_position)
+        ) +
+        theme(
+          plot.title = ggtext::element_markdown()
+        )
+      }
   }) # end of renderPlot
 } # end of server function
 
