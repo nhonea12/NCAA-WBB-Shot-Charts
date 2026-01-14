@@ -71,6 +71,7 @@ wbb_shots <- wbb_shots |>
     shot_made_numeric = as.integer(scoring_play),
     shot_value = case_when(
       grepl("three", text) ~ 3L,
+      grepl("Three", text) ~ 3L,
       TRUE                 ~ 2L
     )
   )
@@ -230,8 +231,9 @@ calculate_hex_coords = function(shots, binwidths) {
   inner_join(hexbin_coords, hexbin_stats, by = "hexbin_id")
 }
 
-
-calculate_hexbins_from_shots = function(shots, league_averages, binwidths = c(1, 1), min_radius_factor = 0.6, fg_diff_limits = c(-0.12, 0.12), fg_pct_limits = c(0.2, 0.7), pps_limits = c(0.5, 1.5)) {
+# min_radius_factor controls the difference in sizes between hex bins
+# binwidths control the overall size of the bins
+calculate_hexbins_from_shots = function(shots, league_averages, binwidths = c(2.5, 2.5), min_radius_factor = 0.4, fg_diff_limits = c(-0.12, 0.12), fg_pct_limits = c(0.2, 0.7), pps_limits = c(0.5, 1.5)) {
   shots <- tibble::as_tibble(as.data.frame(shots))
   league_averages <- tibble::as_tibble(as.data.frame(league_averages))
   
@@ -266,15 +268,16 @@ calculate_hexbins_from_shots = function(shots, league_averages, binwidths = c(1,
   max_hex_attempts = max(hex_data$hex_attempts)
   
   hex_data = mutate(hex_data,
-                    radius_factor = min_radius_factor + (1 - min_radius_factor) * (hex_attempts / max_hex_attempts)^0.35,
+                    radius_factor = min_radius_factor + (1 - min_radius_factor) * log(hex_attempts + 1) / log(max_hex_attempts + 1),
                     adj_x = center_x + radius_factor * (x - center_x),
                     adj_y = center_y + radius_factor * (y - center_y),
                     bounded_fg_diff = pmin(pmax(zone_pct - league_pct, fg_diff_limits[1]), fg_diff_limits[2]),
                     bounded_fg_pct = pmin(pmax(zone_pct, fg_pct_limits[1]), fg_pct_limits[2]),
                     bounded_points_per_shot = pmin(pmax(zone_points_per_shot, pps_limits[1]), pps_limits[2]))
   
-  list(hex_data = hex_data, fg_diff_limits = fg_diff_limits, fg_pct_limits = fg_pct_limits, pps_limits = pps_limits)
+  list(hex_data = hex_data, fg_diff_limits = fg_diff_limits, fg_pct_limits = fg_pct_limits, pps_limits = pps_limits, player_name = shots$athlete_display_name[1], team_name = shots$team_location[1], player_number = shots$athlete_jersey[1], player_headshot = shots$athlete_headshot_href[1], player_position = shots$athlete_position_name[1])
 }
+
 
 
 percent_formatter = function(x) {
@@ -343,16 +346,8 @@ generate_hex_chart = function(hex_data, base_court, metric = "bounded_fg_diff", 
     scale_y_continuous(limits = c(-2.5, 45), oob = scales::oob_squish) +
     # set x-axis limits
     scale_x_continuous(limits = c(-30, 30), oob = scales::oob_squish) + 
-    geom_jitter(size = 2, 
-                show.legend = FALSE, 
-                width = 0.4, 
-                height = 0.4 #Change amount of variation in jitter (default width and height is 0.4)
-    ) + #add shots
-    scale_shape_manual(values = c(4,19)) + #X's and O's
-    scale_color_manual(values = c("#000000", "#CC0000")) +
     # theme tweaks
-    theme(legend.position = 'none',
-          line = element_blank(),
+    theme(line = element_blank(),
           axis.title.x = element_blank(),
           axis.title.y = element_blank(),
           axis.text.x = element_blank(),
@@ -368,10 +363,26 @@ generate_hex_chart = function(hex_data, base_court, metric = "bounded_fg_diff", 
       guide = guide_colorbar(barwidth = 15)
     ) +
     scale_alpha_continuous(guide = FALSE, range = alpha_range, trans = "sqrt") +
-    theme(legend.text = element_text(size = rel(0.6)))
+    theme(legend.text = element_text(size = rel(0.6))) + 
+    guides(
+      fill = guide_colourbar(position = "bottom")
+    ) + 
+    labs(
+      title = ifelse(!is.na(hex_data$player_headshot),
+                     paste0("<img src = '", hex_data$player_headshot, "' height = 50>",
+                            "<span style='font-size: 40pt'>",
+                            hex_data$player_name,
+                            " Hex Chart</span>"),
+                     paste0(hex_data$player_name, " Hex Chart")
+      ),
+      subtitle = paste0("#", hex_data$player_number, ", ", hex_data$player_position)
+      ) +
+    theme(
+      plot.title = ggtext::element_markdown()
+    )
 }
 
-nrow(tilda_shots)
+
 tilda_shots <- wbb_shots |> 
   filter(
     athlete_display_name == "Tilda Trygger"
@@ -379,9 +390,22 @@ tilda_shots <- wbb_shots |>
 
 tilda_hexbin_data <- calculate_hexbins_from_shots(shots = tilda_shots, league_averages = averages)
 
+tilda_hexbin_data
+khamil_shots <- wbb_shots |> 
+  filter(
+    athlete_display_name == "Khamil Pierre"
+  )
+
+khamil_hexbin_data <- calculate_hexbins_from_shots(shots = khamil_shots, league_averages = averages)
+
+qadence_shots <- wbb_shots |> 
+  filter(
+    athlete_display_name == "Qadence Samuels"
+  )
+
+qadence_hexbin_data <- calculate_hexbins_from_shots(shots = qadence_shots, league_averages = averages)
+
 generate_hex_chart(
   hex_data = tilda_hexbin_data,
   base_court = court_points
 )
-
-tilda_hexbin_data$hex_data$hex_attempts |> sum()
