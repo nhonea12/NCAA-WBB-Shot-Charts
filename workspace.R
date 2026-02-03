@@ -341,3 +341,107 @@ create_player_shot_chart(team = "NC State", player = "Tilda Trygger")
 
 wbb_shots |> names()
 wbb_shots$team_location
+
+
+# Qadence threes from the left corner
+Q_left_corner_3s <- wbb_shots |> 
+  filter(athlete_display_name == "Qadence Samuels",
+         shot_value == 3,
+         loc_x >= 21,
+         loc_y <= 12
+         ) |> 
+  select(loc_x, loc_y, shot_value, shot_made_numeric)
+
+
+nrow(Q_left_corner_3s |> filter(shot_made_numeric == 1))
+nrow(Q_left_corner_3s)
+# currently 8/22 from the left corner
+
+
+# Qadence threes from the right corner
+Q_right_corner_3s <- wbb_shots |> 
+  filter(athlete_display_name == "Qadence Samuels",
+         shot_value == 3,
+         loc_x <= -21,
+         loc_y <= 12
+  ) |> 
+  select(loc_x, loc_y, shot_value, shot_made_numeric)
+
+nrow(Q_right_corner_3s |> filter(shot_made_numeric == 1))
+nrow(Q_right_corner_3s)
+# currently 5/15 from the right corner
+
+
+# Qadence threes from the left side
+Q_left_side <- wbb_shots |> 
+  filter(athlete_display_name == "Qadence Samuels",
+         shot_value == 3,
+         loc_x > 0
+  ) |> 
+  select(loc_x, loc_y, shot_value, shot_made_numeric)
+
+
+nrow(Q_left_side |> filter(shot_made_numeric == 1))
+nrow(Q_left_side)
+# currently 13/41 from the left side
+
+
+# Qadence threes from the right side
+Q_right_side <- wbb_shots |> 
+  filter(athlete_display_name == "Qadence Samuels",
+         shot_value == 3,
+         loc_x <= 0
+  ) |> 
+  select(loc_x, loc_y, shot_value, shot_made_numeric)
+
+
+nrow(Q_right_side |> filter(shot_made_numeric == 1))
+nrow(Q_right_side)
+# currently 8/39
+
+
+# Qadence threes from the left wing
+Q_left_wing_3s <- wbb_shots |> 
+  filter(athlete_display_name == "Qadence Samuels",
+         shot_value == 3,
+         loc_x >= 10,
+         loc_y >= 13
+  ) |> 
+  select(loc_x, loc_y, shot_value, shot_made_numeric)
+
+
+nrow(Q_left_wing_3s |> filter(shot_made_numeric == 1))
+nrow(Q_left_wing_3s)
+# currently 5/17 from the left wing
+
+
+# Qadence threes from the right wing
+Q_right_wing_3s <- wbb_shots |> 
+  filter(athlete_display_name == "Qadence Samuels",
+         shot_value == 3,
+         loc_x <= -10,
+         loc_y >= 13
+  ) |> 
+  select(loc_x, loc_y, shot_value, shot_made_numeric)
+
+nrow(Q_right_wing_3s |> filter(shot_made_numeric == 1))
+nrow(Q_right_wing_3s)
+# currently 3/21 from the right wing
+
+
+# Qadence threes from the top of the arc
+Q_top_of_arc <- wbb_shots |> 
+  filter(athlete_display_name == "Qadence Samuels",
+         shot_value == 3,
+         (loc_x >= -9 & loc_x <= 9),
+         loc_y >= 13
+  ) |> 
+  select(loc_x, loc_y, shot_value, shot_made_numeric)
+
+nrow(Q_top_of_arc |> filter(shot_made_numeric == 1))
+nrow(Q_top_of_arc)
+# currently 0/5 from the right wing
+
+
+
+
