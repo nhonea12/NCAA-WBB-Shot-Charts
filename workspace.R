@@ -410,8 +410,7 @@ Q_left_wing_3s <- wbb_shots |>
   select(loc_x, loc_y, shot_value, shot_made_numeric)
 
 
-nrow(Q_left_wing_3s |> filter(shot_made_numeric == 1))
-nrow(Q_left_wing_3s)
+nrow(Q_left_wing_3s |> filter(shot_made_numeric == 1))/nrow(Q_left_wing_3s)
 # currently 5/17 from the left wing
 
 
