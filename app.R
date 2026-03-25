@@ -584,7 +584,17 @@ server <- function(input, output, session) {
                          paste0(player_hexbin_data()$player_name, " Hex Chart")
           ),
           subtitle = paste0("#", player_hexbin_data()$player_number, ", ", player_hexbin_data()$player_position)
-        ) +
+        ) + 
+        annotate("label", 
+                 x = 19.5, y = 42, 
+                 label = paste0("FG: ", nrow(player_shots() %>% filter((grepl("made", text) | grepl("makes", text)))), "/", nrow(player_shots()), " \n 3 FG: ", nrow(player_shots() %>% filter((grepl("Three", text) | grepl("three", text)) & (grepl("made", text) | grepl("makes", text)))), "/", nrow(player_shots() %>% filter((grepl("Three", text) | grepl("three", text))))),
+                 size = 8, 
+                 color = "black", 
+                 fill = "floralwhite", 
+                 fontface = "bold",
+                 lineheight = 0.8, # Controls line spacing (default is 1)
+                 label.padding = unit(0.2, "lines"),  # Reduces padding inside the label (less space between text and label border)
+                ) + 
         theme(
           plot.title = ggtext::element_markdown()
         )
